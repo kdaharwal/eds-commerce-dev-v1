@@ -1,6 +1,4 @@
-/* eslint-disable import/no-cycle */
-
-import { getRootPath } from './scripts.js';
+import { getHref, getOrigin } from './scripts.js';
 
 const ALLOWED_CONFIGS = ['prod', 'stage', 'dev'];
 
@@ -12,7 +10,8 @@ const ALLOWED_CONFIGS = ['prod', 'stage', 'dev'];
  * @returns {string} - environment identifier (dev, stage or prod'.
  */
 export const calcEnvironment = () => {
-  const { host, href } = window.location;
+  const href = getHref();
+  const host = getOrigin();
   let environment = 'prod';
   if (href.includes('.aem.page') || host.includes('staging')) {
     environment = 'stage';
@@ -33,22 +32,21 @@ export const calcEnvironment = () => {
   return environment;
 };
 
-function buildConfigURL(environment, root = '/') {
+function buildConfigURL(environment) {
   const env = environment || calcEnvironment();
   let fileName = 'configs.json';
   if (env !== 'prod') {
     fileName = `configs-${env}.json`;
   }
-  const configURL = new URL(`${window.location.origin}${root}${fileName}`);
+  const configURL = new URL(`${getOrigin()}/${fileName}`);
   return configURL;
 }
 
 const getConfigForEnvironment = async (environment) => {
   const env = environment || calcEnvironment();
-  const root = getRootPath() || '/';
 
   try {
-    const configJSON = window.sessionStorage.getItem(`config:${env}:${root}`);
+    const configJSON = window.sessionStorage.getItem(`config:${env}`);
     if (!configJSON) {
       throw new Error('No config in session storage');
     }
@@ -60,13 +58,13 @@ const getConfigForEnvironment = async (environment) => {
 
     return parsedConfig;
   } catch (e) {
-    let configJSON = await fetch(buildConfigURL(env, root));
+    let configJSON = await fetch(buildConfigURL(env));
     if (!configJSON.ok) {
       throw new Error(`Failed to fetch config for ${env}`);
     }
     configJSON = await configJSON.json();
     configJSON[':expiry'] = Math.round(Date.now() / 1000) + 7200;
-    window.sessionStorage.setItem(`config:${env}:${root}`, JSON.stringify(configJSON));
+    window.sessionStorage.setItem(`config:${env}`, JSON.stringify(configJSON));
     return configJSON;
   }
 };
@@ -88,25 +86,17 @@ export const getConfigValue = async (configParam, environment) => {
 /**
  * Retrieves headers from config entries like commerce.headers.pdp.my-header, etc and
  * returns as object of all headers like { my-header: value, ... }
- */
+*/
 export const getHeaders = async (scope, environment) => {
   const env = environment || calcEnvironment();
   const config = await getConfigForEnvironment(env);
-  const configElements = config.data.filter((el) => el?.key.includes('headers.all') || el?.key.includes(`headers.${scope}`));
+  const configElements = config.data.filter((el) => el?.key.includes(`headers.${scope}`));
 
   return configElements.reduce((obj, item) => {
     let { key } = item;
-
-    // global values
-    if (key.includes('commerce.headers.all.')) {
-      key = key.replace('commerce.headers.all.', '');
-    }
-
-    // scoped values
     if (key.includes(`commerce.headers.${scope}.`)) {
       key = key.replace(`commerce.headers.${scope}.`, '');
     }
-
     return { ...obj, [key]: item.value };
   }, {});
 };
